@@ -1,10 +1,21 @@
+import sqlite3
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base
-from main import app, get_db
+from app.models import Base
+from app.main import app
+from app.db import get_db
+
+# SQLite: включаем FK-каскады (по умолчанию выключены)
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 # Тестовая SQLite БД — изолированная от PostgreSQL
 SQLALCHEMY_TEST_URL = "sqlite:///./test.db"
@@ -14,7 +25,7 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 @pytest.fixture(autouse=True)
 def setup_db():
-    """Пересоздаём таблицы перед каждым тестом — чистая БД"""
+    """Пересоздаём таблицы перед каждым тестом — чистая БД."""
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
@@ -22,7 +33,7 @@ def setup_db():
 
 @pytest.fixture()
 def client():
-    """Подменяем get_db на тестовую сессию"""
+    """Подменяем get_db на тестовую SQLite-сессию."""
     def override_get_db():
         db = TestingSessionLocal()
         try:
